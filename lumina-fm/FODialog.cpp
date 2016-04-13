@@ -6,9 +6,13 @@
 //===========================================
 #include "FODialog.h"
 #include "ui_FODialog.h"
+#include <stdio.h>
+#include <sys/stat.h>
+#include <errno.h>
 
 #include <QApplication>
 #include <QFontMetrics>
+#include <QFileInfo>
 
 #include <ScrollDialog.h>
 
@@ -181,16 +185,23 @@ void FODialog::on_push_stop_clicked(){
 // ===================
 // ==== FOWorker Class ====
 // ===================
-QStringList FOWorker::subfiles(QString dirpath, bool dirsfirst){
+QStringList FOWorker::subfiles(QString dirpath, bool dirsfirst, long long device_id){
   //NOTE: dirpath (input) is always the first/last item in the output as well!
   QStringList out;
+  // If we are moving files between filesystems and one "inside" folder belongs to another
+  // filesystem then we should ignore it
+  if(device_id > -1) {
+    if( QFileInfo(dirpath).isDir() && (device_id != getDeviceId(dirpath))) {
+      return out;
+    }
+  }
   if(dirsfirst){ out << dirpath; }
   if( QFileInfo(dirpath).isDir() ){
     QDir dir(dirpath);
     if(dirsfirst){
       //Now recursively add any subdirectories and their contents
       QStringList subdirs = dir.entryList(QDir::Dirs | QDir::NoDotAndDotDot | QDir::Hidden, QDir::NoSort);
-      for(int i=0; i<subdirs.length(); i++){ out << subfiles(dir.absoluteFilePath(subdirs[i]), dirsfirst); }
+      for(int i=0; i<subdirs.length(); i++){ out << subfiles(dir.absoluteFilePath(subdirs[i]), dirsfirst, device_id); }
     }
     //List the files
     QStringList files = dir.entryList(QDir::Files | QDir::NoDotAndDotDot | QDir::Hidden, QDir::NoSort);
@@ -199,7 +210,7 @@ QStringList FOWorker::subfiles(QString dirpath, bool dirsfirst){
     if(!dirsfirst){
       //Now recursively add any subdirectories and their contents
       QStringList subdirs = dir.entryList(QDir::Dirs | QDir::NoDotAndDotDot | QDir::Hidden, QDir::NoSort);
-      for(int i=0; i<subdirs.length(); i++){ out << subfiles(dir.absoluteFilePath(subdirs[i]), dirsfirst); }
+      for(int i=0; i<subdirs.length(); i++){ out << subfiles(dir.absoluteFilePath(subdirs[i]), dirsfirst, device_id); }
     }
   }
   if(!dirsfirst){ out << dirpath; }
@@ -334,6 +345,22 @@ void FOWorker::slotStartOperations(){
   }
   //Now start iterating over the operations
   QStringList errlist;
+
+  // Check if source and destination belongs to the same filesystem
+  long long source_id, dest_id;
+  source_id = -1;
+  dest_id = -1;
+  // Be sure that we have source files.
+  if(olist.length()) {
+    // All files belong to the same folder so the device ID of olist[0] must be the same than olist[N]
+    source_id = getDeviceId(olist[0]);
+  }
+  // Be sure that we have destination folder.
+  if(nlist.length()) {
+    // All files belong to the same folder so the device ID of nlist[0] must be the same than olist[N]
+    dest_id = getDeviceId(getFullPath(nlist[0]));
+  }
+
   for(int i=0; i<olist.length() && !stopped; i++){
     if(isRM){
       /*ui->label->setText( QString(tr("Removing: %1")).arg(olist[i].section("/",-1)) );
@@ -358,11 +385,51 @@ void FOWorker::slotStartOperations(){
       /*ui->label->setText( QString(tr("Moving: %1 to %2")).arg(ofiles[i].section("/",-1), nfiles[i].section("/",-1)) );
       QApplication::processEvents();*/
       emit startingItem(i+1,olist.length(), olist[i], nlist[i]);
+      if(overwrite==1){
+        errlist << removeItem(nlist[i], true); //recursively remove the file/dir since we are supposed to overwrite it
+      }
+      qDebug() << "Source filesystem is " <<  source_id;
+      qDebug() << "Destination filesystem is " <<  dest_id;
+      QFileInfo file_information(olist[i]);
+      // This was the special case where moving files didn't work. If we want to move a folder between filesystems, we need copy
+      // all the contents and the remove the source folder. This "if" block is for solving that issue.
+      if(file_information.isDir() && (source_id != dest_id)) {
+        QStringList subs = subfiles(ofiles[i], true, source_id);
+        QStringList folders_to_delete;
+        nlist.clear();
+        QStringList olist_tmp;
+        for(int s=0; s<subs.length(); s++){
+          olist_tmp << subs[s];
+          QString newsub = subs[s].section(ofiles[i],0,-1, QString::SectionSkipEmpty);
+          newsub.prepend(nfiles[i]);
+          nlist << newsub;
+        }
+        int error_size;
+        for(int z=0; z<olist_tmp.length();++z) {
+          if( !errlist.contains(olist_tmp[z].section("/",0,-1)) ){
+            error_size = errlist.length();
+            errlist << copyItem(olist_tmp[z], nlist[z]);
+            if(!errlist.isEmpty())
+              qDebug() << errlist;
+            if(error_size == errlist.length()) {
+              QFileInfo file_inf(olist_tmp[z]);
+              if(file_inf.isDir())
+                folders_to_delete << file_inf.absoluteFilePath();
+              else {
+                QFile delete_file(olist_tmp[z]);
+                delete_file.remove(); // Should we add these errors to errlist?
+              }
+            }
+          }
+        }
+        for(int z=folders_to_delete.length() - 1; z>=0; --z) {
+          QDir delete_dir(folders_to_delete[z]);
+          delete_dir.rmdir(folders_to_delete[z]);
+        }
+      }
+      else {
       //Clean up any overwritten files/dirs
       if(QFile::exists(nlist[i])){
-	if(overwrite==1){
-	  errlist << removeItem(nlist[i], true); //recursively remove the file/dir since we are supposed to overwrite it
-	}
       }
       //Perform the move if no error yet (including skipping all children)
       if( !errlist.contains(olist[i].section("/",0,-1)) ){ 
@@ -370,6 +437,7 @@ void FOWorker::slotStartOperations(){
           errlist << ofiles[i];
         }
       }	
+      }
     }
     //ui->progressBar->setValue(i+1);
     //QApplication::processEvents();
@@ -378,4 +446,27 @@ void FOWorker::slotStartOperations(){
   errlist.removeAll(""); //make sure to clear any empty items
   emit finished(errlist);
   qDebug() << "Done with File Operations";
+}
+
+QString FOWorker::getFullPath(const QString &file) const {
+  QString retvalue;
+  int last_index = file.lastIndexOf('/');
+  if (last_index == -1)
+    retvalue = "/";
+  else {
+    for(int i=0; i< last_index; ++i)
+      retvalue += file[i];
+  }
+  return retvalue;
+}
+
+long long FOWorker::getDeviceId(const QString &fullpath) const {
+  long long retvalue = -1;
+  struct stat file_information;
+  // All files belong to the same folder so the device ID of olist[0] must be the same than olist[N]
+  if(stat(fullpath.toStdString().c_str(), &file_information) == -1)
+    perror("Error getting filesystem id");  //Should we finish the operation if is there any error?
+  else
+    retvalue = file_information.st_dev;
+  return retvalue;
 }

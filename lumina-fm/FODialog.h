@@ -47,10 +47,12 @@ public slots:
 	void slotStartOperations();
 
 private:
-	QStringList subfiles(QString dirpath, bool dirsfirst = false); //recursive function for fetching all "child" files/dirs (dirs last by default)
+	QStringList subfiles(QString dirpath, bool dirsfirst = false, long long device_id=-1); //recursive function for fetching all "child" files/dirs (dirs last by default)
 	QString newFileName(QString path);
 	QStringList removeItem(QString path, bool recursive = false);
 	QStringList copyItem(QString oldpath, QString newpath);
+  QString getFullPath(const QString &file) const;
+  long long getDeviceId(const QString &fullpath) const;
 
 signals:
 	void startingItem(int, int, QString, QString); //current number, total number, Old File, New File (if appropriate)
