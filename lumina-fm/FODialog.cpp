@@ -229,7 +229,7 @@ QString FOWorker::newFileName(QString path){
   return QString(path+"-"+QString::number(num)+extension);
 }
 
-QStringList FOWorker::removeItem(QString path, bool recursive){
+QStringList FOWorker::removeItem(QString path, bool recursive, long long device_id){
   //qDebug() << "Remove Path:" << path;
   QStringList items;
   if(recursive){ items = subfiles(path,false); }
@@ -241,10 +241,17 @@ QStringList FOWorker::removeItem(QString path, bool recursive){
       if(items[i]==path){
         //Current Directory Removal
         QDir dir;
+        if(device_id > -1) {
+          qDebug() << "The source filesystem is " << device_id << ", the destination filesystem is " << getDeviceId(items[i]) << " and father filesystem [" << items[i]+"/.." << "] is " << getDeviceId(items[i]+"/..");
+          // Check if destination folder is in a different filesystem and check if its parent directory is on different filesystem.
+          // In that case, destination folder is a mount point and cannot be delete. This error is safe to ignore it
+          if(device_id != getDeviceId(items[i]) && isMountPoint(items[i]))
+            continue;
+        }
         if( !dir.rmdir(items[i]) ){ err << items[i]; }		      
       }else{
         //Recursive Directory Removal
-        err << removeItem(items[i], recursive);	      
+        err << removeItem(items[i], recursive, device_id);	      
       }
     }else{
       //Simple File Removal
@@ -263,7 +270,7 @@ QStringList FOWorker::copyItem(QString oldpath, QString newpath){
     if( !dir.mkpath(newpath) ){ err << oldpath; }
   }else{
     //Copy the file and reset permissions as necessary
-    if( !QFile::copy(oldpath, newpath) ){ err << oldpath; }
+    if( !QFile::copy(oldpath, newpath) ){ err << oldpath; qDebug() << "He entrado aqui y hay error, el error es " << err;}
     else{
       if(isCP){
 	QFile::setPermissions(newpath, QFile::permissions(oldpath));
@@ -385,8 +392,14 @@ void FOWorker::slotStartOperations(){
       /*ui->label->setText( QString(tr("Moving: %1 to %2")).arg(ofiles[i].section("/",-1), nfiles[i].section("/",-1)) );
       QApplication::processEvents();*/
       emit startingItem(i+1,olist.length(), olist[i], nlist[i]);
-      if(overwrite==1){
-        errlist << removeItem(nlist[i], true); //recursively remove the file/dir since we are supposed to overwrite it
+      //Clean up any overwritten files/dirs
+      if(QFile::exists(nlist[i])){
+        if(overwrite==1){
+          if(source_id != dest_id)
+            qDebug() << "Different filesystem";
+          errlist << removeItem(nlist[i], true, source_id); //recursively remove the file/dir since we are supposed to overwrite it
+          qDebug() << "Bad file" << errlist;
+        }
       }
       qDebug() << "Source filesystem is " <<  source_id;
       qDebug() << "Destination filesystem is " <<  dest_id;
@@ -396,21 +409,19 @@ void FOWorker::slotStartOperations(){
       if(file_information.isDir() && (source_id != dest_id)) {
         QStringList subs = subfiles(ofiles[i], true, source_id);
         QStringList folders_to_delete;
-        nlist.clear();
-        QStringList olist_tmp;
+        //nlist.clear();
+        QStringList olist_tmp, nlist_tmp;
         for(int s=0; s<subs.length(); s++){
           olist_tmp << subs[s];
           QString newsub = subs[s].section(ofiles[i],0,-1, QString::SectionSkipEmpty);
           newsub.prepend(nfiles[i]);
-          nlist << newsub;
+          nlist_tmp << newsub;
         }
         int error_size;
         for(int z=0; z<olist_tmp.length();++z) {
           if( !errlist.contains(olist_tmp[z].section("/",0,-1)) ){
             error_size = errlist.length();
-            errlist << copyItem(olist_tmp[z], nlist[z]);
-            if(!errlist.isEmpty())
-              qDebug() << errlist;
+            errlist << copyItem(olist_tmp[z], nlist_tmp[z]);
             if(error_size == errlist.length()) {
               QFileInfo file_inf(olist_tmp[z]);
               if(file_inf.isDir())
@@ -428,9 +439,6 @@ void FOWorker::slotStartOperations(){
         }
       }
       else {
-      //Clean up any overwritten files/dirs
-      if(QFile::exists(nlist[i])){
-      }
       //Perform the move if no error yet (including skipping all children)
       if( !errlist.contains(olist[i].section("/",0,-1)) ){ 
         if( !QFile::rename(ofiles[i], nfiles[i]) ){
@@ -469,4 +477,8 @@ long long FOWorker::getDeviceId(const QString &fullpath) const {
   else
     retvalue = file_information.st_dev;
   return retvalue;
+}
+
+bool FOWorker::isMountPoint(const QString &fullpath) const {
+  return (getDeviceId(fullpath) != getDeviceId(fullpath+"/.."));
 }
