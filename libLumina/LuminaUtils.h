@@ -23,6 +23,8 @@
 #include <QMouseEvent>
 #include <QSize>
 #include <QWidgetAction>
+#include <QUuid>
+#include <QDebug>
 
 class LUtils{
 public:
@@ -90,6 +92,28 @@ public:
 	
 	//Load the default setup for the system
 	static void LoadSystemDefaults(bool skipOS = false);
+
+  // Functions for managing getDirSize operations
+  static void getDirSize(const QString &dirname, QUuid hash_index);
+  static void abortGetDirSize() { getDirSize_aborted = true; }
+  static quint64 getFolderSize(QUuid index) {return LUtils::folder_size.value(index, 0);}
+  static quint64 getFileNumber(QUuid index) {return LUtils::file_number.value(index, 0);}
+  static quint64 getFolderNumber(QUuid index) {return LUtils::folder_number.value(index, 1);}
+  static quint64 getOperationStatus(QUuid index) {return LUtils::operation_finished.value(index, false);}
+  static void deleteUuid(QUuid index) {
+    LUtils::folder_size.remove(index);
+    LUtils::folder_number.remove(index);
+    LUtils::file_number.remove(index);
+    LUtils::operation_finished.remove(index);
+  }
+
+private:
+  static bool getDirSize_aborted; // Flag for stopping the getDirSize operation
+  // These variables are for share static variable between several calls.
+  static QHash<QUuid, quint64> folder_size;
+  static QHash<QUuid, quint64> folder_number;
+  static QHash<QUuid, quint64> file_number;
+  static QHash<QUuid, bool> operation_finished;
 	
 };
 

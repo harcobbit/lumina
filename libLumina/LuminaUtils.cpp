@@ -22,7 +22,14 @@
 #include <LuminaThemes.h>
 #include <LuminaXDG.h>
 
+
 static QStringList fav;
+
+bool LUtils::getDirSize_aborted = false;
+QHash<QUuid, quint64> LUtils::file_number = QHash<QUuid, quint64>();
+QHash<QUuid, quint64> LUtils::folder_number = QHash<QUuid, quint64>();
+QHash<QUuid, quint64> LUtils::folder_size = QHash<QUuid, quint64>();
+QHash<QUuid, bool> LUtils::operation_finished = QHash<QUuid, bool>();
 
 inline QStringList ProcessRun(QString cmd, QStringList args){
   //Assemble outputs
@@ -781,6 +788,53 @@ void LUtils::LoadSystemDefaults(bool skipOS){
   LUtils::writeFile(setdir+"/sessionsettings.conf", sesset, true);
   LUtils::writeFile(setdir+"/desktopsettings.conf", deskset, true);
   LUtils::writeFile(setdir+"/lumina-open.conf", lopenset, true);
+}
+
+void LUtils::getDirSize(const QString &dirname, QUuid hash_index) {
+  LUtils::getDirSize_aborted = false;
+  LUtils::file_number.insert(hash_index, 0);
+  LUtils::folder_number.insert(hash_index, 1);
+  LUtils::folder_size.insert(hash_index, 0);
+  LUtils::operation_finished.insert(hash_index, false);
+  QDir folder(dirname);
+  QFileInfoList file_list;
+  QString dir_name;
+  QList<QString> head;
+  folder.setFilter(QDir::Hidden|QDir::AllEntries|QDir::NoDotAndDotDot);
+  file_list = folder.entryInfoList();
+  for(int i=0; i<file_list.size(); ++i) {
+    if(getDirSize_aborted)
+        break;
+    if(file_list[i].isDir() && !file_list[i].isSymLink()) {
+      LUtils::folder_number.insert(hash_index, LUtils::folder_number.value(hash_index,1) + 1);
+      head.prepend(file_list[i].absoluteFilePath());
+    }
+    else
+      LUtils::file_number.insert(hash_index, LUtils::file_number.value(hash_index,0) + 1);
+    if(!file_list[i].isSymLink())
+      LUtils::folder_size.insert(hash_index, LUtils::folder_size.value(hash_index, 0) + file_list[i].size());
+  }
+  while(!head.isEmpty()) {
+    if(getDirSize_aborted)
+      break;
+    dir_name = head.takeFirst();
+    if(!folder.cd(dir_name)) {
+      qDebug() << "The folder " << dir_name << " doesn't exist";
+      continue;
+    }
+    file_list = folder.entryInfoList();
+    for(int i=0; i<file_list.size(); ++i) {
+      if(file_list[i].isDir() && !file_list[i].isSymLink()) {
+        LUtils::folder_number.insert(hash_index, LUtils::folder_number.value(hash_index,1) + 1);
+        head.prepend(file_list[i].absoluteFilePath());
+      }
+      else
+        file_number.insert(hash_index, file_number.value(hash_index,0) + 1);
+      if(!file_list[i].isSymLink())
+        LUtils::folder_size.insert(hash_index, LUtils::folder_size.value(hash_index, 0) + file_list[i].size());
+    }
+  }
+  LUtils::operation_finished.insert(hash_index, true);
 }
 
 // =======================

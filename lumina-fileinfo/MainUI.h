@@ -14,6 +14,8 @@
 #define _LUMINA_FILE_INFO_MAIN_UI_H
 
 #include <QDialog>
+#include <QTimer>
+#include <QUuid>
 
 #include <LuminaXDG.h>
 
@@ -25,22 +27,20 @@ class MainUI : public QDialog{
 	Q_OBJECT
 public:
 	MainUI();
-	~MainUI();
 
 	void LoadFile(QString path, QString type=""); //type=[APP, LINK]
+  void refresh_folder_size(quint64 size, quint64 files, quint64 folders, bool finished); //Function for updating the folder size asynchronously
 
 public slots:
 	void UpdateIcons();
+  void get_folder_information();
 
 private:
 	Ui::MainUI *ui;
 	bool canwrite;
-    bool terminate_thread; //flag for terminating the GetDirSize task
+    QUuid quid;
+    QTimer *folder_size_refresh_interval;
 	void ReloadAppIcon();
-    void GetDirSize(const QString dirname) const; //function to get folder size
-
-signals:
-    void folder_size_changed(quint64 size, quint64 files, quint64 folders, bool finished) const; //Signal for updating the folder size asynchronously
 
 private slots:
 	//Initialization functions
@@ -57,7 +57,6 @@ private slots:
 	void xdgvaluechanged();
 
     //Folder size
-    void refresh_folder_size(quint64 size, quint64 files, quint64 folders, bool finished); //Slot for updating the folder size asynchronously
 };
 
 #endif
