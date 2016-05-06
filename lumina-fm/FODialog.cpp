@@ -7,12 +7,21 @@
 #include "FODialog.h"
 #include "ui_FODialog.h"
 #include <stdio.h>
+#include <string>
 #include <sys/stat.h>
 #include <errno.h>
+#ifdef __linux__
+#include <sys/vfs.h>
+#else
+#include <sys/param.h>
+#include <sys/mount.h>
+#endif
 
 #include <QApplication>
 #include <QFontMetrics>
 #include <QFileInfo>
+#include <QFuture>
+#include <QtConcurrent>
 
 #include <ScrollDialog.h>
 
@@ -352,6 +361,13 @@ void FOWorker::slotStartOperations(){
   }
   //Now start iterating over the operations
   QStringList errlist;
+  LUtils::getSourceSize(ofiles);
+
+  //At this moment, only FreeBSD gets the free space on destination device
+#ifndef __linux__
+  if(!nfiles.isEmpty())
+    getDeviceFreeSpace(nfiles[0]);
+#endif
 
   // Check if source and destination belongs to the same filesystem
   long long source_id, dest_id;
@@ -482,3 +498,63 @@ long long FOWorker::getDeviceId(const QString &fullpath) const {
 bool FOWorker::isMountPoint(const QString &fullpath) const {
   return (getDeviceId(fullpath) != getDeviceId(fullpath+"/.."));
 }
+
+/*
+quint64 FOWorker::getSourceSize(const QStringList &sources) const {
+  quint64 retvalue = 0;
+  int folder_number = 0;
+  QUuid *hash_index = new QUuid[sources.length()];
+  int sources_size = sources.length();
+  QFuture<quint64> *future = new QFuture<quint64>[sources_size];
+  qDebug() << "Las fuentes son: " << sources;
+  for(int i=0;i<sources_size;++i) {
+    QFileInfo file_info(sources[i]);
+    if(file_info.isDir()) {
+      hash_index[folder_number] = QUuid::createUuid();
+      future[folder_number] = QtConcurrent::run(&LUtils::getDirSize, sources[i], hash_index[folder_number]);
+      ++folder_number;
+    }
+    else
+      retvalue += file_info.size();
+  }
+  for(int i=0;i<folder_number;++i) {
+    retvalue += future[i].result();
+    LUtils::deleteUuid(hash_index[i]);
+  }
+  delete [] hash_index;
+  delete [] future;
+  qDebug() << "[D] El tamaño total es " << retvalue;
+  return retvalue;
+}
+*/
+
+#ifndef __linux__
+quint64 FOWorker::getDeviceFreeSpace(const QString &path) const {
+  quint64 retvalue = 0;
+  struct statfs buf;
+  if(statfs(path.toStdString().c_str(), &buf) == -1)
+    perror("Cannot get filesystem stats information");
+  else {
+    QTemporaryFile tmp_file;
+    if(tmp_file.open())
+      qDebug() << "El nombre del fichero es " << tmp_file.fileName();
+    if(strncmp(buf.f_fstypename, "zfs", 0) == 0) {
+      printf("Entro en zfs\n");
+      QProcess *proc = new QProcess();
+      QString app = "/sbin/zfs";
+      QStringList args;
+      args << "get" << "space" << "homefs/home/carlos";
+      proc->start(app, args);
+      while(proc->waitForFinished());
+      qDebug() << proc->readAllStandardOutput();
+    }
+    uint64_t free_blocks = buf.f_bfree;
+    qDebug() << "[D] El numero de bloques vacios es " << (4*free_blocks)/1024/1024;
+    qDebug() << "[D] El numero de bloques vacios es " << (4*buf.f_blocks)/1024/1024;
+    qDebug() << "[D] El numero de bloques vacios es " << buf.f_iosize;
+    qDebug() << "[D] El numero de bloques vacios es " << buf.f_bsize;
+    qDebug() << "[D] El directorio esta montando en " << buf.f_mntonname;
+  }
+  return retvalue;
+}
+#endif

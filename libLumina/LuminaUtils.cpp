@@ -790,7 +790,7 @@ void LUtils::LoadSystemDefaults(bool skipOS){
   LUtils::writeFile(setdir+"/lumina-open.conf", lopenset, true);
 }
 
-void LUtils::getDirSize(const QString &dirname, QUuid hash_index) {
+quint64 LUtils::getDirSize(const QString &dirname, QUuid hash_index) {
   LUtils::getDirSize_aborted = false;
   LUtils::file_number.insert(hash_index, 0);
   LUtils::folder_number.insert(hash_index, 1);
@@ -835,6 +835,34 @@ void LUtils::getDirSize(const QString &dirname, QUuid hash_index) {
     }
   }
   LUtils::operation_finished.insert(hash_index, true);
+  return folder_size.value(hash_index, 0);
+}
+
+quint64 LUtils::getSourceSize(const QStringList &sources) {
+  quint64 retvalue = 0;
+  int folder_number = 0;
+  QUuid *hash_index = new QUuid[sources.length()];
+  int sources_size = sources.length();
+  QFuture<quint64> *future = new QFuture<quint64>[sources_size];
+  qDebug() << "Las fuentes son: " << sources;
+  for(int i=0;i<sources_size;++i) {
+    QFileInfo file_info(sources[i]);
+    if(file_info.isDir()) {
+      hash_index[folder_number] = QUuid::createUuid();
+      future[folder_number] = QtConcurrent::run(&LUtils::getDirSize, sources[i], hash_index[folder_number]);
+      ++folder_number;
+    }
+    else
+      retvalue += file_info.size();
+  }
+  for(int i=0;i<folder_number;++i) {
+    retvalue += future[i].result();
+    LUtils::deleteUuid(hash_index[i]);
+  }
+  delete [] hash_index;
+  delete [] future;
+  qDebug() << "[D] El tamaño total es " << retvalue;
+  return retvalue;
 }
 
 // =======================

@@ -94,8 +94,10 @@ public:
 	static void LoadSystemDefaults(bool skipOS = false);
 
   // Functions for managing getDirSize operations
-  static void getDirSize(const QString &dirname, QUuid hash_index);
+  static quint64 getDirSize(const QString &dirname, QUuid hash_index);
   static void abortGetDirSize() { getDirSize_aborted = true; }
+  static quint64 getSourceSize(const QStringList &sources);
+  static quint64 getDeviceFreeSpace(const QString &path);
   static quint64 getFolderSize(QUuid index) {return LUtils::folder_size.value(index, 0);}
   static quint64 getFileNumber(QUuid index) {return LUtils::file_number.value(index, 0);}
   static quint64 getFolderNumber(QUuid index) {return LUtils::folder_number.value(index, 1);}

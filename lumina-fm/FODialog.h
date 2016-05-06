@@ -54,6 +54,8 @@ private:
   QString getFullPath(const QString &file) const;
   long long getDeviceId(const QString &fullpath) const;
   bool isMountPoint(const QString &fullpath) const;
+  //quint64 getSourceSize(const QStringList &sources) const;
+  quint64 getDeviceFreeSpace(const QString &path) const;
 
 signals:
 	void startingItem(int, int, QString, QString); //current number, total number, Old File, New File (if appropriate)
